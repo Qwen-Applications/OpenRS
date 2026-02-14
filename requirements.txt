@@ -1,0 +1,5 @@
+openai
+tenacity
+json5
+json-repair
+tqdm
