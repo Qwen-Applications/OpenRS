@@ -1,16 +1,16 @@
 """
-rewardbench_v2.py - RewardBench V2 评测脚本
+rewardbench_v2.py - RewardBench V2 Evaluation Script
 
-功能：
-1. 处理 RewardBench V2 数据集 (1vsN 比较)
-2. 过滤 "Tie" subset
-3. 路由评测逻辑：
-   - Math / Factuality -> Verifiable (有 GT 时先 verifiable，无法判定则 fallback to pairwise)
+Features:
+1. Process RewardBench V2 dataset (1vsN comparison)
+2. Filter "Tie" subset
+3. Route evaluation logic:
+   - Math / Factuality -> Verifiable (Verifiable first if GT exists, fallback to pairwise if inconclusive)
    - Precise IF -> Pointwise
    - Chat / Safety / Other -> Pairwise
-4. 计算胜率: Win / (Win + Loss)
+4. Calculate win rate: Win / (Win + Loss)
 
-使用方式：
+Usage:
 python rewardbench_v2.py --input data/rewardbench_v2/rewardbench_v2.jsonl --output results/rbv2_results.jsonl
 """
 
@@ -39,11 +39,11 @@ def process_single_item(
     output_dir: str = "./results",
     annotation: str = "",
 ) -> Dict[str, Any]:
-    """处理单条数据 (1 vs N)，并按阶段分流写入文件"""
+    """Process single item (1 vs N), and write to files by stage"""
     subset = data.get('subset', 'unknown')
     question_id = data.get('id', 'unknown')
     
-    # 2.1 抛弃 Tie subset
+    # 2.1 Discard Tie subset
     if subset == 'Tie':
         return {'skip': True}
 
@@ -51,15 +51,15 @@ def process_single_item(
         query = data.get('prompt')
         chosen_list = data.get('chosen', [])
         rejected_list = data.get('rejected', [])
-        ground_truth = data.get('ground_truth') # Math/Factuality 需要
-        constraints = data.get('constraints', []) # 指令遵循预提取结果
+        ground_truth = data.get('ground_truth') # Required for Math/Factuality
+        constraints = data.get('constraints', []) # Instruction following pre-extraction results
 
-        # 规范化 chosen/rejected 为列表
+        # Normalize chosen/rejected as list
         if isinstance(chosen_list, str): chosen_list = [chosen_list]
         if isinstance(rejected_list, str): rejected_list = [rejected_list]
         
-        # 按照 RewardBench 定义，chosen 是列表但通常只有一个正确答案
-        # 我们取第一个 chosen 与所有 rejected 比较
+        # According to RewardBench definition, chosen is a list but usually has only one correct answer
+        # We take the first chosen to compare with all rejected
         if not chosen_list:
             raise ValueError('No chosen response')
         chosen_response = chosen_list[0]
@@ -67,12 +67,12 @@ def process_single_item(
         if not rejected_list:
             raise ValueError('No rejected responses')
 
-        # 评测策略分流
-        is_pointwise = bool(constraints)  # 有 constraints → Precise IF 逻辑
+        # Evaluation strategy routing
+        is_pointwise = bool(constraints)  # Has constraints -> Precise IF logic
         
         comparisons = []
         results_for_sample = [] # 1(Win), 0(Tie), -1(Loss)
-        comparison_verdicts = [] # 保存每次比较的原始 verdict
+        comparison_verdicts = [] # Save raw verdict for each comparison
         
         for rejected_response in rejected_list:
             comparison_result = 0
@@ -81,8 +81,8 @@ def process_single_item(
             
             try:
                 if constraints:
-                    # 有 constraints → Precise IF 评测
-                    # evaluate_precise_if 内部已包含 fallback to pairwise 逻辑
+                    # Has constraints -> Precise IF evaluation
+                    # evaluate_precise_if already contains fallback to pairwise logic
                     res = evaluate_precise_if(
                         query=query,
                         chosen=chosen_response,
@@ -103,21 +103,21 @@ def process_single_item(
                         comparison_result = 0
                         single_verdict = 'precise_if_same'
                 else:
-                    # Math/Factuality 使用 evaluate_pair (传入 GT)
-                    # Chat/Safety 等 使用 evaluate_pair (GT=None)
-                    # evaluate_pair 会自动处理: 如果 GT 存在且能分出胜负则返回; 否则(或GT为空)跑 Pairwise
+                    # Math/Factuality uses evaluate_pair (pass GT)
+                    # Chat/Safety etc. use evaluate_pair (GT=None)
+                    # evaluate_pair handles automatically: if GT exists and winner determined, return; otherwise (or GT empty) run Pairwise
                     
-                    # 如果是 Math/Factuality, 尝试传入 GT
+                    # If Math/Factuality, try passing GT
                     gt_to_use = ground_truth if subset in ['Math', 'Factuality'] else None
                     
-                    # 调用 evaluate_pair
-                    # query_type 传入 subset 以便选择专用 Pairwise Prompt (如果存在对应 .md)
+                    # Call evaluate_pair
+                    # query_type passes subset to select dedicated Pairwise Prompt (if corresponding .md exists)
                     res = evaluate_pair(
                         query=query, 
                         chosen=chosen_response, 
                         rejected=rejected_response, 
                         ground_truth=gt_to_use,
-                        query_type=subset, # 尝试匹配 prompts/pairwise_prompts/{subset}.md
+                        query_type=subset, # Try matching prompts/pairwise_prompts/{subset}.md
                         temperature=temperature,
                         min_score=min_score
                     )
@@ -125,7 +125,7 @@ def process_single_item(
                     detail = res
                     single_verdict = res.get('final_verdict', 'error')
                     
-                    # 转换 verdict 为 1/0/-1
+                    # Convert verdict to 1/0/-1
                     if single_verdict in ['verifiable_good', 'good']:
                         comparison_result = 1
                     elif single_verdict in ['verifiable_bad', 'bad']:
@@ -147,10 +147,10 @@ def process_single_item(
                 'detail': detail
             })
 
-        # 聚合结果 (1 vs N)
-        # Win: All 1 (Chosen 击败所有 Rejected)
-        # Loss: Any -1 (Chosen 输给任何一个 Rejected)
-        # Tie: 否则 (Chosen >= 所有 Rejected, 但至少有一个 Tie)
+        # Aggregate results (1 vs N)
+        # Win: All 1 (Chosen defeats all Rejected)
+        # Loss: Any -1 (Chosen loses to any Rejected)
+        # Tie: Otherwise (Chosen >= all Rejected, but at least one Tie)
         
         final_verdict = 'Tie'
         if all(r == 1 for r in results_for_sample):
@@ -163,11 +163,11 @@ def process_single_item(
         data['eval_comparisons'] = comparisons
         data['final_verdict'] = final_verdict
         
-        # 提取关键信息用于分流
-        # 根据评测类型决定分流文件
+        # Extract key info for routing
+        # Determine routing file based on evaluation type
         has_verifiable = any(v.startswith('verifiable_') for v in comparison_verdicts)
         
-        # 根据 final_verdict 和评测类型来决定分流文件
+        # Determine routing file based on final_verdict and evaluation type
         if final_verdict == 'Win':
             if is_pointwise:
                 target_file = f"{output_dir}/pointwise_good_cases_{annotation}.jsonl"
@@ -188,7 +188,7 @@ def process_single_item(
             else:
                 target_file = f"{output_dir}/pairwise_same_cases_{annotation}.jsonl"
         
-        # 写入分流文件和汇总文件
+        # Write routing files and summary file
         json_str = safe_json_dumps(data) + '\n'
         with file_lock:
             with open(target_file, "a", encoding="utf-8") as f:
@@ -199,7 +199,7 @@ def process_single_item(
         return data
         
     except Exception as e:
-        error_msg = f"处理失败: {e}"
+        error_msg = f"Processing failed: {e}"
         logger.error("%s: %s", question_id, error_msg)
         
         data['error'] = error_msg
@@ -214,8 +214,8 @@ def process_single_item(
 def main():
     parser = argparse.ArgumentParser(description="RewardBench V2 Evaluation Script")
     parser.add_argument("--input", required=True)
-    parser.add_argument("--output-dir", default="./results", help="输出目录")
-    parser.add_argument("--annotation", default="rbv2", help="输出文件名标注")
+    parser.add_argument("--output-dir", default="./results", help="Output directory")
+    parser.add_argument("--annotation", default="rbv2", help="Output filename annotation")
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--limit", type=int, default=0)
@@ -226,7 +226,7 @@ def main():
     
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     
-    # 创建输出目录
+    # Create output directory
     output_dir = args.output_dir
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -243,7 +243,7 @@ def main():
 
     logger.info("Total raw data: %d", len(all_data))
     
-    # 过滤 Tie subset
+    # Filter Tie subset
     all_data = [d for d in all_data if d.get('subset') != 'Tie']
     logger.info("After removing 'Tie' subset: %d", len(all_data))
     
@@ -332,7 +332,7 @@ def main():
         if verdict in subset_stats[subset]:
             subset_stats[subset][verdict] += 1
 
-    # 保存统计 JSON
+    # Save statistics JSON
     summary = {'by_subset': subset_stats}
     total_win, total_loss, total_tie = 0, 0, 0
     for stats in subset_stats.values():
@@ -346,10 +346,10 @@ def main():
     with open(f"{output_dir}/summary_{annotation}.json", 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
-    # 打印易读报告
+    # Print readable report
     print("\n")
     print("=" * 70)
-    print("  RewardBench V2 评测报告")
+    print("  RewardBench V2 Evaluation Report")
     print("=" * 70)
     
     print(f"\n  {'Subset':<20s} {'Win':>6s} {'Loss':>6s} {'Tie':>6s} {'Total':>6s} {'Win Rate':>10s}")
@@ -371,7 +371,7 @@ def main():
     print(f"  {'Overall':<20s} {total_win:>6d} {total_loss:>6d} {total_tie:>6d} {overall_total:>6d} {overall_rate:>9.2%}")
     
     print("\n" + "=" * 70)
-    print(f"  结果目录: {output_dir}")
+    print(f"  Result directory: {output_dir}")
     print("=" * 70)
     print()
 

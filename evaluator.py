@@ -1,13 +1,13 @@
 """
-evaluator.py - 公共评测接口
+evaluator.py - Common Evaluation Interface
 
-提供统一的评测函数:
-- evaluate_pointwise: 用于 RewardBench V2 中的 Precise IF
-- evaluate_verifiable: 事实核查
-- evaluate_pairwise: 两两比较
-- evaluate_pair: 打包 evaluate_verifiable 和 evaluate_pairwise，统一评测入口
+Provides unified evaluation functions:
+- evaluate_pointwise: For Precise IF in RewardBench V2
+- evaluate_verifiable: Fact checking
+- evaluate_pairwise: Pairwise comparison
+- evaluate_pair: Packages evaluate_verifiable and evaluate_pairwise, unified evaluation entry point
 
-供各数据集脚本调用：
+Called by dataset scripts:
 - judgebench_and_ppe.py
 - rmbench.py
 - rewardbench_v2.py
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _load_pairwise_map() -> Dict[str, str]:
-    """加载各 query_type 对应的 pairwise prompt"""
+    """Load pairwise prompts for each query_type"""
 
     def get_pairwise_prompt(pairwise_prompt_rubrics: str) -> str:
         sep_1 = '\n\n⚠️ **注意**：以下仅为参考框架，必须结合用户问题特性和 A、B 回答的特点进行筛选与重构，不可照搬！\n\n'
@@ -51,18 +51,18 @@ def _load_pairwise_map() -> Dict[str, str]:
 PAIRWISE_MAP = _load_pairwise_map()
 
 
-# ============== 核心函数 ==============
+# ============== Core Functions ==============
 
 def get_json_result(prompt: str, temperature: float = 0.0) -> Optional[Dict[str, Any]]:
     """
-    调用模型并解析 JSON 结果
+    Call model and parse JSON result
 
     Args:
-        prompt: 评测 prompt
-        temperature: 生成温度
+        prompt: evaluation prompt
+        temperature: generation temperature
 
     Returns:
-        解析后的 JSON 结果，失败返回 None
+        Parsed JSON result, None if failed
     """
     for _ in range(5):
         response = get_client_response(prompt, temperature=temperature)
@@ -70,7 +70,7 @@ def get_json_result(prompt: str, temperature: float = 0.0) -> Optional[Dict[str,
             continue
         json_result = parse_json_result(response)
         if not isinstance(json_result, dict):
-            logger.warning('解析结果不是字典: %s，重试中...', type(json_result))
+            logger.warning('Parsed result is not a dict: %s, retrying...', type(json_result))
             continue
 
         if 'rubric_compares' in json_result:
@@ -79,7 +79,7 @@ def get_json_result(prompt: str, temperature: float = 0.0) -> Optional[Dict[str,
                     return json_result
         if 'score' in json_result:
             return json_result
-        logger.warning('JSON 格式错误，重试中...')
+        logger.warning('JSON format error, retrying...')
     return None
 
 
@@ -92,20 +92,20 @@ def evaluate_pointwise(
     subset: str = 'Precise IF',
 ) -> Dict[str, Any]:
     """
-    Pointwise 评测（针对 Instruction Following / Focus）
+    Pointwise evaluation (for Instruction Following / Focus)
 
-    分别对 chosen 和 rejected 进行评分 (1/0/-1)，然后比较分数决定胜负。
+    Score chosen and rejected separately (1/0/-1), then compare scores to determine winner.
 
     Args:
-        query: 用户问题
-        chosen: 被选择的回答
-        rejected: 被拒绝的回答
-        temperature: 生成温度
-        constraints: 硬性指令列表 (Optional, for Precise IF)
-        subset: 子集名称，用于选择 prompt ('Precise IF' or 'Focus')
+        query: User question
+        chosen: Chosen response
+        rejected: Rejected response
+        temperature: Generation temperature
+        constraints: List of hard constraints (Optional, for Precise IF)
+        subset: Subset name, used to select prompt ('Precise IF' or 'Focus')
 
     Returns:
-        评测结果字典
+        Evaluation result dictionary
     """
     if subset == 'Precise IF':
         return evaluate_precise_if(query, chosen, rejected, constraints, temperature)
@@ -122,22 +122,22 @@ def evaluate_verifiable(
     temperature: float = 0.0,
 ) -> Dict[str, Any]:
     """
-    Verifiable 评测（事实核查）
+    Verifiable evaluation (Fact Checking)
 
     Args:
-        query: 用户问题
-        chosen: 被选择的回答
-        rejected: 被拒绝的回答
-        ground_truth: 标准答案
-        temperature: 生成温度
+        query: User question
+        chosen: Chosen response
+        rejected: Rejected response
+        ground_truth: Ground truth
+        temperature: Generation temperature
 
     Returns:
-        包含 chosen_result, rejected_result, chosen_score, rejected_score, verdict 的字典
+        Dictionary containing chosen_result, rejected_result, chosen_score, rejected_score, verdict
     """
     result = {}
 
     try:
-        # 评测 chosen
+        # Evaluate chosen
         prompt_chosen = ground_truth_check_prompt_template.format(
             query=query,
             response=chosen,
@@ -146,7 +146,7 @@ def evaluate_verifiable(
         result_chosen = get_json_result(prompt_chosen, temperature=temperature)
         result['chosen_result'] = result_chosen
 
-        # 评测 rejected
+        # Evaluate rejected
         prompt_rejected = ground_truth_check_prompt_template.format(
             query=query,
             response=rejected,
@@ -155,7 +155,7 @@ def evaluate_verifiable(
         result_rejected = get_json_result(prompt_rejected, temperature=temperature)
         result['rejected_result'] = result_rejected
 
-        # 提取分数
+        # Extract scores
         if result_chosen and result_rejected:
             score_chosen = result_chosen.get('score', 0)
             score_rejected = result_rejected.get('score', 0)
@@ -186,35 +186,35 @@ def evaluate_pairwise(
     temperature: float = 0.0,
 ) -> Dict[str, Any]:
     """
-    Pairwise 评测（单次 A vs B）
+    Pairwise evaluation (Single A vs B)
 
     Args:
-        query: 用户问题
-        response_a: 回答 A
-        response_b: 回答 B
-        query_type: 问题类型（用于选择特定 prompt）
-        temperature: 生成温度
+        query: User question
+        response_a: Response A
+        response_b: Response B
+        query_type: Question type (used to select specific prompt)
+        temperature: Generation temperature
 
     Returns:
-        包含 raw_result, score, winner 的字典
+        Dictionary containing raw_result, score, winner
     """
     result = {}
 
     try:
-        # 选择 prompt 模板
+        # Select prompt template
         if query_type and query_type in PAIRWISE_MAP:
             prompt_template = PAIRWISE_MAP[query_type]
         else:
             prompt_template = pairwise_prompt_common_template
 
-        # 构建 prompt
+        # Build prompt
         prompt = prompt_template.format(
             query=query,
             response_a=response_a,
             response_b=response_b
         )
 
-        # 调用模型
+        # Call model
         json_result = get_json_result(prompt, temperature=temperature)
 
         if json_result is None:
@@ -225,11 +225,11 @@ def evaluate_pairwise(
 
         result['raw_result'] = json_result
 
-        # 解析分数
+        # Parse score
         score = parse_pair_score(json_result)
         result['score'] = score
 
-        # 判定 winner
+        # Determine winner
         if score > 0:
             result['winner'] = 'A'
         elif score < 0:
@@ -255,25 +255,25 @@ def evaluate_pair(
     min_score: float = 0.0,
 ) -> Dict[str, Any]:
     """
-    完整评测接口（Verifiable + Pairwise 双向）
+    Complete evaluation interface (Verifiable + Pairwise bidirectional)
 
-    这是主要的公共接口，供各评测脚本调用。
+    This is the main common interface, called by evaluation scripts.
 
     Args:
-        query: 用户问题
-        chosen: 被选择的回答（应该更好）
-        rejected: 被拒绝的回答
-        ground_truth: 标准答案（可选，有则先做事实核查）
-        query_type: 问题类型（用于选择特定 pairwise prompt）
-        temperature: 生成温度
-        min_score: 判定阈值
+        query: User question
+        chosen: Chosen response (should be better)
+        rejected: Rejected response
+        ground_truth: Ground truth (optional, if exists, do fact checking first)
+        query_type: Question type (used to select specific pairwise prompt)
+        temperature: Generation temperature
+        min_score: Judgment threshold
 
     Returns:
-        包含 verifiable, pairwise_forward, pairwise_backward, final_verdict 的字典
+        Dictionary containing verifiable, pairwise_forward, pairwise_backward, final_verdict
     """
     result = {}
 
-    # Part 1: Verifiable (事实核查)
+    # Part 1: Verifiable (Fact Checking)
     if ground_truth:
         verifiable_result = evaluate_verifiable(
             query=query,
@@ -291,7 +291,7 @@ def evaluate_pair(
             result['final_verdict'] = 'verifiable_bad'
             return result
 
-    # Part 2: Pairwise (双向评测)
+    # Part 2: Pairwise (Bidirectional Evaluation)
     # Forward: A=chosen, B=rejected
     pairwise_forward = evaluate_pairwise(
         query=query,
@@ -312,7 +312,7 @@ def evaluate_pair(
     )
     result['pairwise_backward'] = pairwise_backward
 
-    # 判定最终结果
+    # Determine final result
     score_f = pairwise_forward.get('score')
     score_b = pairwise_backward.get('score')
 
@@ -330,15 +330,15 @@ def evaluate_pair(
 
 def compute_metrics_from_verdicts(verdicts: list, verifiable_good_count: int = 0, verifiable_bad_count: int = 0) -> Dict[str, Any]:
     """
-    从判定结果列表计算指标
+    Compute metrics from verdict list
 
     Args:
-        verdicts: final_verdict 结果列表
-        verifiable_good_count: verifiable 阶段直接判定为 good 的数量
-        verifiable_bad_count: verifiable 阶段直接判定为 bad 的数量
+        verdicts: List of final_verdict results
+        verifiable_good_count: Count of good verdicts directly from verifiable stage
+        verifiable_bad_count: Count of bad verdicts directly from verifiable stage
 
     Returns:
-        包含 acc_num, same_num, err_num, all_num, acc_rate, same_rate, parse_failed 的字典
+        Dictionary containing acc_num, same_num, err_num, all_num, acc_rate, same_rate, parse_failed
     """
     acc_num = verifiable_good_count
     err_num = verifiable_bad_count

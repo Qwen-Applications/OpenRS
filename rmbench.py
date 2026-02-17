@@ -1,14 +1,14 @@
 """
-RMBench 评测脚本
+RMBench Evaluation Script
 
-功能：
-1. 读取 RMBench 格式的数据（chosen/rejected 各 3 个变体）
-2. 对 9 种配对组合 (aa, ab, ac, ba, bb, bc, ca, cb, cc) 进行评测
-3. 每对进行两次评测（交换位置）以消除位置偏差
-4. 调用 evaluator.py 的公共评测接口
-5. 自动生成汇总统计
+Features:
+1. Load RMBench format data (3 variants for chosen/rejected each)
+2. Evaluate 9 pair combinations (aa, ab, ac, ba, bb, bc, ca, cb, cc)
+3. Evaluate each pair twice (swapping positions) to eliminate position bias
+4. Call common evaluation interface from evaluator.py
+5. Automatically generate summary statistics
 
-使用方式：
+Usage:
 python rmbench.py --input data/rmbench.json --output results/rmbench_results.jsonl
 """
 
@@ -25,54 +25,54 @@ from typing import Any, DefaultDict, Dict, List, Literal, Optional, Tuple
 
 from tqdm import tqdm
 
-# 使用公共评测接口
+# Use common evaluation interface
 from evaluator import evaluate_pairwise, evaluate_verifiable
 from tools import load_jsonl, save_jsonl
 from robust_utils import safe_json_dumps_robust as safe_json_dumps
 
 logger = logging.getLogger(__name__)
 
-# ============== 可编辑参数 ==============
-MAX_CONCURRENT = 10             # 最大并发数
-TEMPERATURE = 0.0               # 生成温度
+# ============== Editable Parameters ==============
+MAX_CONCURRENT = 10             # Max concurrency
+TEMPERATURE = 0.0               # Generation temperature
 # ========================================
 
 
-# 文件锁
+# File lock
 file_lock = threading.Lock()
 
-# 配对标签
+# Pair labels
 PAIR_LABELS: List[str] = [
     "aa", "ab", "ac",
     "ba", "bb", "bc",
     "ca", "cb", "cc",
 ]
 
-# 配对难度分类
+# Pair difficulty classification
 MODE_BY_PAIR: Dict[str, str] = {
     "aa": "normal", "bb": "normal", "cc": "normal",
     "ab": "hard", "ac": "hard", "bc": "hard",
     "ca": "easy", "cb": "easy", "ba": "easy",
 }
 
-# 变体索引映射
+# Variant index mapping
 VARIANT_MAP: Dict[str, int] = {"a": 0, "b": 1, "c": 2}
 
-# domain 直接作为 query_type 使用
-# 可以在 ./prompts/pairwise_prompts/ 目录下创建对应的 .md 文件
-# 例如：chat.md, code.md, math.md 等
+# domain is used directly as query_type
+# You can create corresponding .md files in ./prompts/pairwise_prompts/ directory
+# e.g., chat.md, code.md, math.md etc.
 
 
-# ============== 数据结构 ==============
+# ============== Data Structures ==============
 
 @dataclass
 class JudgeInput:
-    """单次评测的输入"""
+    """Input for a single evaluation"""
     sample_id: str
     domain: str
     query: str
     pair: str
-    order: int  # 1: A=chosen, B=rejected; 2: 交换位置
+    order: int  # 1: A=chosen, B=rejected; 2: swap positions
     chosen_variant: str
     rejected_variant: str
     response_a: str
@@ -82,7 +82,7 @@ class JudgeInput:
 
 @dataclass
 class Counter:
-    """win/tie/lose 计数器"""
+    """win/tie/lose counter"""
     win: int = 0
     tie: int = 0
     lose: int = 0
@@ -118,10 +118,10 @@ class Counter:
         }
 
 
-# ============== 核心函数 ==============
+# ============== Core Functions ==============
 
 def get_sample_field(sample: Dict[str, Any], *keys: str, default: Any = None) -> Any:
-    """获取样本字段，支持多个候选字段名"""
+    """Get sample field, supporting multiple candidate field names"""
     for key in keys:
         if key in sample:
             return sample[key]
@@ -129,7 +129,7 @@ def get_sample_field(sample: Dict[str, Any], *keys: str, default: Any = None) ->
 
 
 def build_judge_inputs(sample: Dict[str, Any]) -> List[JudgeInput]:
-    """为单个样本构建所有评测输入（9 配对 × 2 顺序 = 18 次）"""
+    """Build all evaluation inputs for a single sample (9 pairs * 2 orders = 18 times)"""
     sample_id = get_sample_field(sample, "id", "question_id", default="unknown")
     domain = get_sample_field(sample, "domain", "query_type", default="general")
     query = get_sample_field(sample, "prompt", default="")
@@ -138,17 +138,17 @@ def build_judge_inputs(sample: Dict[str, Any]) -> List[JudgeInput]:
     chosen = sample.get("chosen", [])
     rejected = sample.get("rejected", [])
     
-    # 如果是单个回答（非列表），转换为单元素列表（兼容 main.py 数据格式）
+    # If single response (not list), convert to single-element list (compatible with main.py data format)
     if isinstance(chosen, str):
         chosen = [chosen]
     if isinstance(rejected, str):
         rejected = [rejected]
     
-    # 确保至少有一个变体
+    # Ensure at least one variant
     if not chosen or not rejected:
-        raise ValueError(f"样本 {sample_id}: chosen 或 rejected 为空")
+        raise ValueError(f"Sample {sample_id}: chosen or rejected is empty")
     
-    # 填充到 3 个变体（如果不足）
+    # Pad to 3 variants (if insufficient)
     while len(chosen) < 3:
         chosen.append(chosen[-1])
     while len(rejected) < 3:
@@ -173,7 +173,7 @@ def build_judge_inputs(sample: Dict[str, Any]) -> List[JudgeInput]:
             ground_truth=ground_truth,
         ))
         
-        # order 2: 交换位置，A=rejected, B=chosen
+        # order 2: Swap positions, A=rejected, B=chosen
         inputs.append(JudgeInput(
             sample_id=sample_id,
             domain=domain,
@@ -192,12 +192,12 @@ def build_judge_inputs(sample: Dict[str, Any]) -> List[JudgeInput]:
 
 def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
     """
-    执行单次评测（调用 evaluator.py 的公共接口）
+    Execute single evaluation (call common interface of evaluator.py)
     
-    流程：
-    1. 如果有 ground_truth，先执行 Verifiable 评测
-    2. 执行 Pairwise 评测（A vs B）
-    3. 返回评测结果
+    Process:
+    1. If ground_truth exists, perform Verifiable evaluation first
+    2. Perform Pairwise evaluation (A vs B)
+    3. Return evaluation results
     """
     result = {
         "pair": ji.pair,
@@ -206,7 +206,7 @@ def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
         "rejected_variant": ji.rejected_variant,
     }
     
-    # 根据 order 确定 chosen 和 rejected 的位置
+    # Determine chosen and rejected positions based on order
     if ji.order == 1:
         # A = chosen, B = rejected
         chosen_response = ji.response_a
@@ -216,8 +216,8 @@ def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
         chosen_response = ji.response_b
         rejected_response = ji.response_a
     
-    # --- Part 1: Verifiable (事实核查) ---
-    # 调用 evaluator.py 的 evaluate_verifiable
+    # --- Part 1: Verifiable (Fact Checking) ---
+    # Call evaluate_verifiable from evaluator.py
     verifiable_conclusive = False
     
     if ji.ground_truth:
@@ -233,11 +233,11 @@ def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
             verdict = verifiable_result.get('verdict', 'error')
             result["verifiable_verdict"] = verdict
             
-            # 只有当明确分出胜负时，才认为是 conclusive
+            # Considered conclusive only when a clear winner is determined
             if verdict in ["chosen_better", "rejected_better"]:
                 verifiable_conclusive = True
                 
-                # 必须将 verdict (chosen/rejected) 映射回 Pairwise 的 Winner (A/B)
+                # Must map verdict (chosen/rejected) back to Pairwise Winner (A/B)
                 # Order 1: A=Chosen, B=Rejected
                 # Order 2: A=Rejected, B=Chosen
                 if verdict == "chosen_better":
@@ -247,23 +247,23 @@ def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
 
                 result["verifiable_winner"] = winner_ab
                 
-                # 直接使用 Verifiable 的结果作为最终结果
+                # Use Verifiable result directly as final result
                 result["winner"] = winner_ab
                 result["score"] = 1.0 if winner_ab == "A" else -1.0
-                # 标记为 verifiable 胜出，无需跑 pairwise
+                # Mark as verifiable winner, no need to run pairwise
                 
         except Exception as e:
             result["verifiable_error"] = str(e)
     
-    # --- Part 2: Pairwise (两两比较) ---
-    # 只有当没有 GT，或者 Verifiable 无法判定 (Tie/Error) 时，才跑 Pairwise
+    # --- Part 2: Pairwise (Pairwise Comparison) ---
+    # Run Pairwise only when no GT, or Verifiable is inconclusive (Tie/Error)
     if not verifiable_conclusive:
         try:
             pairwise_result = evaluate_pairwise(
                 query=ji.query,
                 response_a=ji.response_a,
                 response_b=ji.response_b,
-                query_type=ji.domain,  # domain 作为 query_type
+                query_type=ji.domain,  # domain as query_type
                 temperature=temperature
             )
             
@@ -285,20 +285,20 @@ def judge_one(ji: JudgeInput, temperature: float = 0.0) -> Dict[str, Any]:
 
 def aggregate_pair_result(w1: str, w2: str) -> str:
     """
-    聚合两次评测结果（位置交换）
+    Aggregate two evaluation results (position swap)
     
-    规则：
-    - win: 两次都判 chosen 更好 (order1=A wins, order2=B wins)
-    - lose: 两次都判 rejected 更好 (order1=B wins, order2=A wins)
-    - tie: 其他情况
+    Rules:
+    - win: chosen is better in both cases (order1=A wins, order2=B wins)
+    - lose: rejected is better in both cases (order1=B wins, order2=A wins)
+    - tie: other cases
     """
     if w1 is None or w2 is None:
         return "error"
     
     # order 1: A=chosen, B=rejected
     # order 2: A=rejected, B=chosen
-    chosen_win_1 = (w1 == "A")  # order1 中 A 赢 = chosen 赢
-    chosen_win_2 = (w2 == "B")  # order2 中 B 赢 = chosen 赢
+    chosen_win_1 = (w1 == "A")  # A wins in order1 = chosen wins
+    chosen_win_2 = (w2 == "B")  # B wins in order2 = chosen wins
     
     if chosen_win_1 and chosen_win_2:
         return "win"
@@ -320,7 +320,7 @@ def process_sample(
     temperature: float = 0.0,
     workers: int = MAX_CONCURRENT,
 ) -> Dict[str, Any]:
-    """处理单个样本的所有评测"""
+    """Process all evaluations for a single sample"""
     sample_id = get_sample_field(sample, "id", "question_id", default="unknown")
     domain = get_sample_field(sample, "domain", "query_type", default="general")
     query = get_sample_field(sample, "prompt", default="")
@@ -328,13 +328,13 @@ def process_sample(
     try:
         judge_inputs = build_judge_inputs(sample)
     except Exception as e:
-        logger.error("%s: 构建评测输入失败 - %s", sample_id, e)
+        logger.error("%s: Build judge inputs failed - %s", sample_id, e)
         return {"id": sample_id, "domain": domain, "error": str(e)}
     
-    # 并发执行所有评测
+    # Execute all evaluations concurrently
     raw_results: Dict[Tuple[str, int], Dict[str, Any]] = {}
     
-    # 限制内层并发，避免线程爆炸 (外层已有主要并发)
+    # Limit inner concurrency to avoid thread explosion (outer layer already has main concurrency)
     inner_workers = min(workers, 4) 
     with ThreadPoolExecutor(max_workers=inner_workers) as executor:
         futures = {executor.submit(judge_one, ji, temperature): ji for ji in judge_inputs}
@@ -345,7 +345,7 @@ def process_sample(
                 result = future.result()
                 raw_results[(result["pair"], result["order"])] = result
                 
-                # 写入原始结果
+                # Write raw results
                 raw_record = {
                     "id": sample_id,
                     "domain": domain,
@@ -368,7 +368,7 @@ def process_sample(
                         f.write(json.dumps(error_record, ensure_ascii=False) + "\n")
                 raw_results[(ji.pair, ji.order)] = {"winner": None, "error": repr(e)}
     
-    # 聚合每对的结果
+    # Aggregate results for each pair
     pair_results: Dict[str, Any] = {}
     for pair in PAIR_LABELS:
         r1 = raw_results.get((pair, 1), {})
@@ -383,7 +383,7 @@ def process_sample(
             "result": result,
         }
     
-    # 构建最终记录
+    # Build final record
     final_record = {
         "id": sample_id,
         "domain": domain,
@@ -391,7 +391,7 @@ def process_sample(
         "pair_results": pair_results,
     }
     
-    # 写入结果
+    # Write results
     with file_lock:
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(final_record, ensure_ascii=False) + "\n")
@@ -400,7 +400,7 @@ def process_sample(
 
 
 def compute_summary(output_file: str) -> Dict[str, Any]:
-    """计算汇总统计（融合 summary_rmbench.py 逻辑）"""
+    """Compute summary statistics (merge summary_rmbench.py logic)"""
     # domain -> pair -> Counter
     domain_pair: DefaultDict[str, Dict[str, Counter]] = defaultdict(
         lambda: {p: Counter() for p in PAIR_LABELS}
@@ -409,11 +409,11 @@ def compute_summary(output_file: str) -> Dict[str, Any]:
     domain_mode: DefaultDict[str, Dict[str, Counter]] = defaultdict(
         lambda: {"easy": Counter(), "normal": Counter(), "hard": Counter()}
     )
-    # 全局统计
+    # Global statistics
     global_pair: Dict[str, Counter] = {p: Counter() for p in PAIR_LABELS}
     global_mode: Dict[str, Counter] = {"easy": Counter(), "normal": Counter(), "hard": Counter()}
     
-    # 读取结果
+    # Read results
     with open(output_file, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -440,7 +440,7 @@ def compute_summary(output_file: str) -> Dict[str, Any]:
                 global_pair[pair].add(result)
                 global_mode[mode].add(result)
     
-    # 构建汇总
+    # Build summary
     summary: Dict[str, Any] = {
         "global": {
             "by_pair": {p: global_pair[p].metrics() for p in PAIR_LABELS},
@@ -459,7 +459,7 @@ def compute_summary(output_file: str) -> Dict[str, Any]:
 
 
 def load_done_ids(output_file: str) -> set:
-    """加载已完成的样本 ID（用于断点续传）"""
+    """Load completed sample IDs (for resume)"""
     done_ids = set()
     if not os.path.exists(output_file):
         return done_ids
@@ -481,7 +481,7 @@ def load_done_ids(output_file: str) -> set:
 
 
 def load_data(input_file: str) -> List[Dict[str, Any]]:
-    """加载数据文件（支持 JSON 和 JSONL 格式）"""
+    """Load data file (supports JSON and JSONL formats)"""
     with open(input_file, "r", encoding="utf-8") as f:
         content = f.read().strip()
         if content.startswith("["):
@@ -491,25 +491,25 @@ def load_data(input_file: str) -> List[Dict[str, Any]]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RMBench 评测脚本")
+    parser = argparse.ArgumentParser(description="RMBench Evaluation Script")
     
-    parser.add_argument("--input", required=True, help="输入数据文件路径")
-    parser.add_argument("--output", default="results/rmbench_results.jsonl", help="输出结果文件路径")
-    parser.add_argument("--raw-output", default=None, help="原始评测结果文件路径")
-    parser.add_argument("--error-log", default=None, help="错误日志文件路径")
-    parser.add_argument("--summary", default=None, help="汇总统计文件路径")
+    parser.add_argument("--input", required=True, help="Input data file path")
+    parser.add_argument("--output", default="results/rmbench_results.jsonl", help="Output result file path")
+    parser.add_argument("--raw-output", default=None, help="Raw evaluation result file path")
+    parser.add_argument("--error-log", default=None, help="Error log file path")
+    parser.add_argument("--summary", default=None, help="Summary statistics file path")
     
-    parser.add_argument("--workers", type=int, default=MAX_CONCURRENT, help="并发数")
-    parser.add_argument("--temperature", type=float, default=TEMPERATURE, help="生成温度")
-    parser.add_argument("--limit", type=int, default=0, help="限制处理条数（0=不限制）")
-    parser.add_argument("--domain", type=str, nargs="+", default=None, help="只处理指定 domain（如 chat, code, math 等，支持多个）")
-    parser.add_argument("--no-resume", action="store_true", help="不使用断点续传")
+    parser.add_argument("--workers", type=int, default=MAX_CONCURRENT, help="Concurrency")
+    parser.add_argument("--temperature", type=float, default=TEMPERATURE, help="Generation temperature")
+    parser.add_argument("--limit", type=int, default=0, help="Limit number of items (0=no limit)")
+    parser.add_argument("--domain", type=str, nargs="+", default=None, help="Process specific domains only (e.g. chat, code, math etc., supports multiple)")
+    parser.add_argument("--no-resume", action="store_true", help="Do not resume")
     
     args = parser.parse_args()
     
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     
-    # 设置文件路径
+    # Set file paths
     output_dir = Path(args.output).parent
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -517,60 +517,60 @@ def main():
     error_file = args.error_log or str(output_dir / "rmbench_errors.jsonl")
     summary_file = args.summary or str(output_dir / "rmbench_summary.json")
     
-    # 加载数据
-    logger.info("加载数据: %s", args.input)
+    # Load data
+    logger.info("Load data: %s", args.input)
     all_data = load_data(args.input)
-    logger.info("共 %d 条数据", len(all_data))
+    logger.info("Total %d items", len(all_data))
     
-    # 过滤指定 domain
+    # Filter specific domains
     if args.domain:
-        # 支持 case-insensitive 匹配
+        # Support case-insensitive matching
         target_domains = {d.lower() for d in args.domain}
         all_data = [
             s for s in all_data 
             if get_sample_field(s, "domain", "query_type", default="").lower() in target_domains
         ]
-        logger.info("过滤 domains=%s: %d 条", args.domain, len(all_data))
+        logger.info("Filtering domains=%s: %d items", args.domain, len(all_data))
     
-    # 断点续传
+    # Resume
     if not args.no_resume:
         done_ids = load_done_ids(args.output)
         if done_ids:
-            logger.info("断点续传: 已完成 %d 条，跳过", len(done_ids))
+            logger.info("Resume: %d items already completed, skipping", len(done_ids))
             all_data = [
                 s for s in all_data 
                 if get_sample_field(s, "id", "question_id") not in done_ids
             ]
     else:
-        # 清空输出文件
+        # Clear output files
         for f in [args.output, raw_output_file, error_file]:
             if os.path.exists(f):
                 os.remove(f)
     
-    # 限制处理条数
+    # Limit number of items
     if args.limit > 0:
         all_data = all_data[:args.limit]
     
-    # ... (之前的代码保持不变) ...
+    # ... (previous code remains unchanged) ...
 
     if not all_data:
-        logger.info("没有需要处理的数据")
+        logger.info("No data to process")
         return
 
-    logger.info("开始处理 %d 条数据", len(all_data))
-    logger.info("并发数: %d", args.workers)
-    logger.info("每样本评测次数: %d (9配对 × 2顺序)", len(PAIR_LABELS) * 2)
+    logger.info("Start processing %d items", len(all_data))
+    logger.info("Concurrency: %d", args.workers)
+    logger.info("Evaluation tasks per sample: %d (9 pairs * 2 orders)", len(PAIR_LABELS) * 2)
     
-    # 1. 预先构建所有任务输入的映射表
+    # 1. Pre-build mapping of all task inputs
     # map: sample_id -> { (pair, order) -> result }
     # 用于最后聚合
     sample_results_map: DefaultDict[str, Dict[Tuple[str, int], Dict[str, Any]]] = defaultdict(dict)
     
-    # 2. 生成所有细粒度任务
+    # 2. Generate all fine-grained tasks
     all_tasks: List[JudgeInput] = []
-    logger.info("构建任务列表...")
+    logger.info("Building task list...")
     
-    # 只需要 ID 到 Sample 的映射，方便后续聚合
+    # Only need ID to Sample mapping for subsequent aggregation
     id_to_sample = {} 
     
     for sample in all_data:
@@ -580,50 +580,50 @@ def main():
             sid = get_sample_field(sample, "id", "question_id", default="unknown")
             id_to_sample[sid] = sample
         except Exception as e:
-            logger.warning("跳过样本 %s: %s", sample.get('id', 'unknown'), e)
+            logger.warning("Skipping sample %s: %s", sample.get('id', 'unknown'), e)
 
     total_tasks = len(all_tasks)
-    logger.info("共生成 %d 个评测子任务", total_tasks)
+    logger.info("Total %d evaluation subtasks generated", total_tasks)
 
-    # 3. 全局并发执行
+    # 3. Global concurrent execution
     completed_tasks = 0
     
-    # 实时跟踪：sample_id -> 完成的任务数
+    # Real-time tracking: sample_id -> number of completed tasks
     sample_progress = defaultdict(int)
-    # 线程锁
+    # Thread lock
     progress_lock = threading.Lock()
     
-    # 需要每个 Sample 的任务总数 (一般是 18，但如果 build 出错可能少)
+    # Total tasks required per sample (usually 18, but may be fewer if build fails)
     sample_total_tasks = defaultdict(int)
     for ji in all_tasks:
         sample_total_tasks[ji.sample_id] += 1
         
-    logger.info("启动流式聚合，实时写入结果...")
+    logger.info("Start stream aggregation, writing results in real-time...")
     
     success_count = 0
     error_count = 0
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # 提交所有任务
+        # Submit all tasks
         future_to_task = {executor.submit(judge_one, ji, args.temperature): ji for ji in all_tasks}
         
-        # 进度条监控任务完成
-        for future in tqdm(as_completed(future_to_task), total=total_tasks, desc="全局评测中"):
+        # Progress bar monitoring task completion
+        for future in tqdm(as_completed(future_to_task), total=total_tasks, desc="Global Evaluating"):
             ji = future_to_task[future]
             sid = ji.sample_id
             
             try:
                 result = future.result()
                 
-                # 记录结果到内存 map (线程安全? output map 最好加锁，或者 dict 本身是原子的)
-                # 为安全起见用锁
+                # Record results to memory map (Thread safety? output map should be locked, or dict itself is atomic)
+                # Use lock for safety
                 with progress_lock:
                     sample_results_map[sid][(ji.pair, ji.order)] = result
                     sample_progress[sid] += 1
                     current_done = sample_progress[sid]
                     target_total = sample_total_tasks[sid]
                 
-                # 实时写入原始结果
+                # Real-time write raw results
                 raw_record = {
                     "id": sid,
                     "domain": ji.domain,
@@ -633,12 +633,12 @@ def main():
                     with open(raw_output_file, "a", encoding="utf-8") as f:
                         f.write(safe_json_dumps(raw_record) + "\n")
                 
-                # CHECK: 该 Sample 是否所有任务都完成了？
+                # CHECK: Are all tasks for this Sample completed?
                 if current_done == target_total:
-                    # 🚀 触发聚合！
+                    # 🚀 Trigger aggregation!
                     sample = id_to_sample.get(sid)
                     if sample:
-                        # 这里的聚合逻辑复用以前的
+                        # Aggregation logic reuses previous one
                         results_chunk = sample_results_map[sid]
                         pair_results = {}
                         sample_error = False
@@ -665,7 +665,7 @@ def main():
                             "pair_results": pair_results,
                         }
                         
-                        # 写入最终结果
+                        # Write final result
                         with file_lock:
                             with open(args.output, "a", encoding="utf-8") as f:
                                 f.write(json.dumps(final_record, ensure_ascii=False) + "\n")
@@ -675,12 +675,12 @@ def main():
                         else:
                             error_count += 1
                             
-                        # (可选) 释放内存
+                        # (Optional) Release memory
                         del sample_results_map[sid]
                         del id_to_sample[sid]
                         
             except Exception as e:
-                # 记录错误
+                # Record error
                 with progress_lock:
                     sample_results_map[sid][(ji.pair, ji.order)] = {"winner": None, "error": str(e)}
                 
@@ -695,22 +695,22 @@ def main():
                     with open(error_file, "a", encoding="utf-8") as f:
                         f.write(json.dumps(error_record, ensure_ascii=False) + "\n")
 
-    # 4. 循环结束后，不再需要统一聚合了，因为已经在流式里完成了
-    # 只需要做最后的统计即可
+    # 4. No need for unified aggregation after loop, as it's done in stream
+    # Only final statistics needed
 
-    # 计算汇总
+    # Compute summary
     summary = compute_summary(args.output)
     
     with open(summary_file, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     
-    # 打印易读报告
+    # Print readable report
     print("\n")
     print("=" * 70)
-    print("  RMBench 评测报告")
+    print("  RMBench Evaluation Report")
     print("=" * 70)
     
-    # 全局统计
+    # Global statistics
     print(f"\n  {'Mode':<10s} {'Win':>6s} {'Tie':>6s} {'Lose':>6s} {'Total':>6s} {'Win Rate':>10s} {'Net Win':>10s}")
     print("  " + "-" * 62)
     
@@ -733,10 +733,10 @@ def main():
         g_nwr = g_win / (g_win + g_lose) if (g_win + g_lose) else 0
         print(f"  {'Total':<10s} {g_win:>6d} {g_tie:>6d} {g_lose:>6d} {g_total:>6d} {g_wr:>9.2%} {g_nwr:>9.2%}")
     
-    # 按 Domain 统计
+    # Statistics by Domain
     by_domain = summary.get("by_domain", {})
     if by_domain:
-        print(f"\n  按 Domain 统计:")
+        print(f"\n  Statistics by Domain:")
         for domain in sorted(by_domain.keys()):
             print(f"\n  [{domain}]")
             domain_modes = by_domain[domain].get("by_mode", {})
@@ -751,8 +751,8 @@ def main():
                 print(f"    {mode:<10s} {win:>5d} {tie:>5d} {lose:>5d} {total:>5d}  win={wr:.2%}  net={nwr:.2%}")
     
     print("\n" + "=" * 70)
-    print(f"  结果文件: {args.output}")
-    print(f"  汇总文件: {summary_file}")
+    print(f"  Result file: {args.output}")
+    print(f"  Summary file: {summary_file}")
     print("=" * 70)
     print()
 

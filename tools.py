@@ -25,19 +25,19 @@ client = OpenAI(api_key=api_key, base_url=openai_api_base)
 # ============== File I/O ==============
 
 def save_jsonl(datas, file_name):
-    """保存JSONL文件（增强版：支持Unicode容错）"""
+    """Save JSONL file (Enhanced: supports Unicode fault tolerance)"""
     try:
         with open(file_name, 'w', encoding='utf-8') as fin:
             for data in datas:
                 fin.write(json.dumps(data, ensure_ascii=False) + '\n')
     except (UnicodeEncodeError, Exception) as e:
-        logger.warning("save_jsonl遇到错误，使用鲁棒版本: %s", e)
+        logger.warning("save_jsonl encountered error, using robust version: %s", e)
         from robust_utils import safe_save_jsonl
         return safe_save_jsonl(datas, file_name, mode='w')
 
 
 def load_jsonl(file_path):
-    """加载JSONL文件（支持自动修复损坏行）"""
+    """Load JSONL file (supports automatic repair of broken lines)"""
     try:
         from json_repair import repair_json
         has_repair = True
@@ -84,22 +84,22 @@ def load_jsonl(file_path):
 # ============== JSON Parsing ==============
 
 def parse_json_result(response) -> dict:
-    """从模型响应中解析JSON结果"""
+    """Parse JSON result from model response"""
     try:
-        # Step 1: 提取 Markdown 代码块
+        # Step 1: Extract Markdown code block
         matches = re.findall(r'```json\s*(.*?)\s*```', response, re.DOTALL)
         if len(matches) == 0:
             raise ValueError("no json block found for pair rm")
 
         json_str = matches[-1]
 
-        # Step 2: 优先尝试标准 json (最快)
+        # Step 2: Try standard json first (fastest)
         try:
             return json.loads(json_str)
         except Exception:
             pass
 
-        # Step 3: 尝试 json5 (处理多余逗号等)
+        # Step 3: Try json5 (handle trailing commas, etc.)
         try:
             return json5.loads(json_str)
         except Exception:
@@ -111,7 +111,7 @@ def parse_json_result(response) -> dict:
             raise ValueError("Repair failed")
 
     except Exception:
-        # 兜底逻辑
+        # Fallback logic
         from robust_utils import parse_json_result_robust
         return parse_json_result_robust(response)
 
@@ -119,9 +119,9 @@ def parse_json_result(response) -> dict:
 
 def parse_pair_score(json_result, min_score=0):
     """
-    解析分数（一票否决版）：
-    如果有硬伤，直接返回硬伤总分（无视其他所有维度）。
-    如果没有硬伤，才计算其他维度的加权平均分。
+    Parse score (Veto version):
+    If there is a fatal error, return the total fatal score directly (ignoring all other dimensions).
+    If there are no fatal errors, calculate the weighted average score of other dimensions.
     """
     try:
         weight_map = {'核心': 5, '重要': 2, '亮点': 1}
@@ -132,11 +132,11 @@ def parse_pair_score(json_result, min_score=0):
 
         rubric_compares = json_result['rubric_compares']
 
-        fatal_score_sum = 0      # 专门存硬伤的分数总和
-        has_fatal_error = False  # 标记是否出现过硬伤
+        fatal_score_sum = 0      # Sum of scores specifically for fatal errors
+        has_fatal_error = False  # Flag to indicate if a fatal error has occurred
 
-        normal_weighted_sum = 0  # 普通维度的加权总分
-        normal_total_weight = 0  # 普通维度的权重总和
+        normal_weighted_sum = 0  # Weighted total score for normal dimensions
+        normal_total_weight = 0  # Total weight for normal dimensions
 
         for item in rubric_compares:
             weight_type = item.get('type', '重要')
@@ -145,7 +145,7 @@ def parse_pair_score(json_result, min_score=0):
             if raw_score == 0:
                 continue
 
-            # 统一正负号逻辑 (A赢为正，B赢为负)
+            # Unified sign logic (Positive for A win, Negative for B win)
             abs_score = abs(raw_score)
             if item['chosen'] == 'A':
                 final_score = abs_score
@@ -184,7 +184,7 @@ def parse_pair_score(json_result, min_score=0):
 # ============== Model API ==============
 
 def get_client_response(prompt, temperature=0.0, top_p=1.0, seed=1024):
-    """调用 OpenAI 兼容 API 获取模型响应"""
+    """Call OpenAI compatible API to get model response"""
 
     @retry(stop=stop_after_attempt(10), wait=wait_fixed(10), retry_error_callback=lambda x: None)
     def _impl():

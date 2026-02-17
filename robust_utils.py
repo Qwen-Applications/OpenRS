@@ -1,6 +1,6 @@
 """
-鲁棒性工具函数：处理Unicode、JSON解析等问题
-确保最大程度的容错性和稳定性
+Robust utility functions: handling Unicode, JSON parsing, etc.
+Ensuring maximum fault tolerance and stability.
 """
 
 import json
@@ -14,24 +14,24 @@ logger = logging.getLogger(__name__)
 
 def fix_surrogates_robust(obj):
     """
-    超级鲁棒的 Unicode surrogate 修复
-    处理所有可能的编码问题
+    Super robust Unicode surrogate repair.
+    Handles all possible encoding issues.
     """
     if isinstance(obj, str):
         try:
-            # 方法1: 先尝试正常编码
+            # Method 1: Try normal encoding first
             obj.encode('utf-8')
             return obj
         except UnicodeEncodeError:
             try:
-                # 方法2: 使用 surrogatepass 处理
+                # Method 2: Use surrogatepass
                 return obj.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='replace')
             except Exception:
                 try:
-                    # 方法3: 使用 ignore 忽略无法编码的字符
+                    # Method 3: Use ignore to skip unencodable characters
                     return obj.encode('utf-8', errors='ignore').decode('utf-8', errors='ignore')
                 except Exception:
-                    # 方法4: 最后的兜底，使用 ascii
+                    # Method 4: Last resort, use ascii
                     return obj.encode('ascii', errors='ignore').decode('ascii', errors='ignore')
     elif isinstance(obj, dict):
         return {fix_surrogates_robust(k): fix_surrogates_robust(v) for k, v in obj.items()}
@@ -43,46 +43,46 @@ def fix_surrogates_robust(obj):
 
 def safe_json_dumps_robust(data, ensure_ascii=False):
     """
-    超级鲁棒的 JSON 序列化
-    多层容错，确保一定能成功
+    Super robust JSON serialization.
+    Multi-layer fault tolerance to ensure success.
     """
-    # 第1次尝试：正常序列化
+    # Attempt 1: Normal serialization
     try:
         return json.dumps(data, ensure_ascii=ensure_ascii)
     except UnicodeEncodeError:
         pass
     
-    # 第2次尝试：清理 surrogate 后序列化
+    # Attempt 2: Clean surrogates then serialize
     try:
         cleaned_data = fix_surrogates_robust(data)
         return json.dumps(cleaned_data, ensure_ascii=ensure_ascii)
     except Exception:
         pass
     
-    # 第3次尝试：使用 ensure_ascii=True（牺牲可读性换取稳定性）
+    # Attempt 3: Use ensure_ascii=True (sacrifice readability for stability)
     try:
         cleaned_data = fix_surrogates_robust(data)
         return json.dumps(cleaned_data, ensure_ascii=True)
     except Exception:
         pass
     
-    # 第4次尝试：使用 json5（更宽松的解析）
+    # Attempt 4: Use json5 (looser parsing)
     try:
         cleaned_data = fix_surrogates_robust(data)
         return json5.dumps(cleaned_data)
     except Exception:
         pass
     
-    # 最后的兜底：返回字符串表示
+    # Last resort: Return string representation
     return str(data)
 
 
 def safe_file_write(filepath, content, mode='w', encoding='utf-8'):
     """
-    安全的文件写入，处理所有可能的编码问题
+    Safe file write, handling all possible encoding issues.
     """
     try:
-        # 第1次尝试：正常写入
+        # Attempt 1: Normal write
         with open(filepath, mode, encoding=encoding) as f:
             f.write(content)
         return True
@@ -90,7 +90,7 @@ def safe_file_write(filepath, content, mode='w', encoding='utf-8'):
         pass
     
     try:
-        # 第2次尝试：清理内容后写入
+        # Attempt 2: Clean content then write
         cleaned_content = fix_surrogates_robust(content)
         with open(filepath, mode, encoding=encoding) as f:
             f.write(cleaned_content)
@@ -99,7 +99,7 @@ def safe_file_write(filepath, content, mode='w', encoding='utf-8'):
         pass
     
     try:
-        # 第3次尝试：使用 errors='replace'
+        # Attempt 3: Use errors='replace'
         with open(filepath, mode, encoding=encoding, errors='replace') as f:
             f.write(content)
         return True
@@ -107,19 +107,19 @@ def safe_file_write(filepath, content, mode='w', encoding='utf-8'):
         pass
     
     try:
-        # 第4次尝试：使用 errors='ignore'
+        # Attempt 4: Use errors='ignore'
         with open(filepath, mode, encoding=encoding, errors='ignore') as f:
             f.write(content)
         return True
     except Exception as e:
-        logger.error("文件写入失败: %s, 错误: %s", filepath, e)
+        logger.error("File write failed: %s, error: %s", filepath, e)
         return False
 
 
 def parse_json_result_robust(response):
     """
-    超级鲁棒的 JSON 解析
-    多种策略，确保最大成功率
+    Super robust JSON parsing.
+    Multiple strategies to ensure maximum success rate.
     """
     if isinstance(response, dict):
         return response
@@ -127,35 +127,35 @@ def parse_json_result_robust(response):
     if not isinstance(response, str):
         response = str(response)
     
-    # 策略1: 提取 ```json ... ``` 代码块
+    # Strategy 1: Extract ```json ... ``` code block
     matches = re.findall(r'```json\s*(.*?)\s*```', response, re.DOTALL)
     if matches:
         json_str = matches[-1]
     else:
-        # 策略2: 提取 ``` ... ``` 代码块
+        # Strategy 2: Extract ``` ... ``` code block
         matches = re.findall(r'```\s*(.*?)\s*```', response, re.DOTALL)
         if matches:
             json_str = matches[-1]
         else:
-            # 策略3: 直接使用整个响应
+            # Strategy 3: Use the entire response directly
             json_str = response
     
-    # 清理可能的前后空白和特殊字符
+    # Clean potential leading/trailing whitespace and special characters
     json_str = json_str.strip()
     
-    # 尝试多种解析方法
+    # Try multiple parsing methods
     parsers = [
-        # 方法1: 标准 json.loads
+        # Method 1: Standard json.loads
         lambda s: json.loads(s),
-        # 方法2: json5.loads (更宽松)
+        # Method 2: json5.loads (looser)
         lambda s: json5.loads(s),
-        # 方法3: repair_json + json.loads
+        # Method 3: repair_json + json.loads
         lambda s: json.loads(repair_json(s)),
-        # 方法4: repair_json + json5.loads
+        # Method 4: repair_json + json5.loads
         lambda s: json5.loads(repair_json(s)),
-        # 方法5: 清理 surrogate 后再解析
+        # Method 5: Clean surrogates then parse
         lambda s: json.loads(fix_surrogates_robust(s)),
-        # 方法6: 清理 surrogate + repair_json
+        # Method 6: Clean surrogates + repair_json
         lambda s: json.loads(repair_json(fix_surrogates_robust(s))),
     ]
     
@@ -169,53 +169,53 @@ def parse_json_result_robust(response):
             last_error = e
             continue
     
-    # 所有方法都失败，抛出详细错误
-    raise ValueError(f"JSON解析失败，尝试了{len(parsers)}种方法。最后错误: {last_error}\n原始响应前500字符: {response[:500]}")
+    # All methods failed, raise detailed error
+    raise ValueError(f"JSON parsing failed, tried {len(parsers)} methods. Last error: {last_error}\nFirst 500 chars of original response: {response[:500]}")
 
 
 def validate_json_structure(json_result, required_keys=None):
     """
-    验证 JSON 结构的完整性
+    Validate the integrity of JSON structure.
     """
     if not isinstance(json_result, dict):
-        return False, "结果不是字典类型"
+        return False, "Result is not a dictionary"
     
     if required_keys:
         missing_keys = [key for key in required_keys if key not in json_result]
         if missing_keys:
-            return False, f"缺少必需字段: {missing_keys}"
+            return False, f"Missing required fields: {missing_keys}"
     
-    return True, "验证通过"
+    return True, "Validation passed"
 
 
     """
-    鲁棒的分数解析，增加容错
+    Robust score parsing, increasing fault tolerance.
     """
-    # 增加 '熔断' 权重 (虽然 score 已经是 ±100 了，权重依然可加成)
-    # 将 '核心' 权重提升至 5，以压倒多个'重要'(2)或'亮点'(1)
+    # Add 'Meltdown' weight (although score is already ±100, weight can still be added)
+    # Increase 'Core' weight to 5 to outweigh multiple 'Important'(2) or 'Highlight'(1)
     weight_score_map = {'熔断': 100, '核心': 5, '重要': 2, '亮点': 1}
     epsilon = 1e-6
     
-    # 验证基本结构
+    # Validate basic structure
     if not isinstance(json_result, dict):
-        raise ValueError(f"json_result 不是字典: {type(json_result)}")
+        raise ValueError(f"json_result is not a dict: {type(json_result)}")
     
     if 'rubric_compares' not in json_result:
-        raise ValueError(f"缺少 rubric_compares 字段。可用字段: {list(json_result.keys())}")
+        raise ValueError(f"Missing rubric_compares field. Available fields: {list(json_result.keys())}")
     
     rubric_compares = json_result['rubric_compares']
     
     if not isinstance(rubric_compares, list):
-        raise ValueError(f"rubric_compares 不是列表: {type(rubric_compares)}")
+        raise ValueError(f"rubric_compares is not a list: {type(rubric_compares)}")
     
     if len(rubric_compares) == 0:
-        raise ValueError("rubric_compares 为空列表")
+        raise ValueError("rubric_compares is an empty list")
     
     def validate_score(score, weight):
-        """验证分数和权重的有效性"""
-        # 增加 '熔断' 类型
+        """Validate validity of score and weight"""
+        # Add 'Meltdown' type
         valid_weights = ('熔断', '核心', '重要', '亮点')
-        # 允许 ±100 作为一票否决分
+        # Allow ±100 as a veto score
         valid_scores = (1, 2, 0, -2, -1, 100, -100)
         return weight in valid_weights and score in valid_scores
     
@@ -224,52 +224,52 @@ def validate_json_structure(json_result, required_keys=None):
     
     for idx, rubric_compare in enumerate(rubric_compares):
         try:
-            # 获取权重，默认为"重要"
+            # Get weight, default to "Important"
             weight = rubric_compare.get('type', '重要')
             
-            # 获取分数，尝试多种方式
+            # Get score, try multiple ways
             if 'score' not in rubric_compare:
-                parse_errors.append(f"第{idx}项缺少score字段")
+                parse_errors.append(f"Item {idx} missing score field")
                 continue
             
             try:
                 score = int(rubric_compare['score'])
             except (ValueError, TypeError) as e:
-                parse_errors.append(f"第{idx}项score无法转换为整数: {rubric_compare['score']}")
+                parse_errors.append(f"Item {idx} score cannot be converted to int: {rubric_compare['score']}")
                 continue
             
-            # 根据 chosen 字段调整分数方向
+            # Adjust score direction based on chosen field
             chosen = rubric_compare.get('chosen', 'S')
             if (chosen == 'A' and score < 0) or (chosen == 'B' and score > 0):
                 score = -score
             
-            # 跳过0分
+            # Skip 0 score
             if score == 0:
                 continue
             
-            # 验证分数和权重
+            # Validate score and weight
             if not validate_score(score, weight):
-                parse_errors.append(f"第{idx}项score({score})或weight({weight})无效")
+                parse_errors.append(f"Item {idx} score({score}) or weight({weight}) invalid")
                 continue
             
-            # 计算加权分数
+            # Calculate weighted score
             weight_value = weight_score_map[weight]
             weighted_sum.append(weight_value * score)
             all_weight.append(weight_value)
             
         except Exception as e:
-            parse_errors.append(f"第{idx}项解析异常: {e}")
+            parse_errors.append(f"Item {idx} parsing exception: {e}")
             continue
     
-    # 如果所有项都解析失败
+    # If all items failed parsing
     if len(weighted_sum) == 0:
-        error_msg = f"所有rubric_compare项都解析失败。错误: {'; '.join(parse_errors)}"
+        error_msg = f"All rubric_compare items failed parsing. Errors: {'; '.join(parse_errors)}"
         raise ValueError(error_msg)
     
-    # 计算加权平均分
+    # Calculate weighted average score
     weighted_avg_score = sum(weighted_sum) / (sum(all_weight) + epsilon)
     
-    # 应用最小分数阈值
+    # Apply minimum score threshold
     if abs(weighted_avg_score) < min_score:
         weighted_avg_score = 0
     
@@ -278,8 +278,8 @@ def validate_json_structure(json_result, required_keys=None):
 
 def safe_load_jsonl(filepath):
     """
-    鲁棒的 JSONL 文件加载
-    跳过损坏的行，记录错误
+    Robust JSONL file loading.
+    Skip corrupted lines, log errors.
     """
     results = []
     errors = []
@@ -295,19 +295,19 @@ def safe_load_jsonl(filepath):
                     data = json.loads(line)
                     results.append(data)
                 except Exception as e:
-                    # 尝试修复
+                    # Try to repair
                     try:
                         data = json.loads(repair_json(line))
                         results.append(data)
                     except Exception as e2:
-                        errors.append(f"行{line_num}: {e}")
+                        errors.append(f"Line {line_num}: {e}")
                         continue
     except Exception as e:
-        logger.error("文件读取失败: %s, 错误: %s", filepath, e)
+        logger.error("File read failed: %s, error: %s", filepath, e)
         return []
     
     if errors:
-        logger.warning("%s 有 %d 行解析失败", filepath, len(errors))
+        logger.warning("%s has %d lines failed parsing", filepath, len(errors))
         if len(errors) <= 5:
             for err in errors:
                 logger.warning("   %s", err)
@@ -317,8 +317,8 @@ def safe_load_jsonl(filepath):
 
 def safe_save_jsonl(data_list, filepath, mode='w'):
     """
-    鲁棒的 JSONL 文件保存
-    确保每条数据都能成功写入
+    Robust JSONL file saving.
+    Ensure every data item is written successfully.
     """
     success_count = 0
     fail_count = 0
@@ -332,13 +332,13 @@ def safe_save_jsonl(data_list, filepath, mode='w'):
                     success_count += 1
                 except Exception as e:
                     fail_count += 1
-                    logger.warning("数据写入失败: %s", e)
+                    logger.warning("Data write failed: %s", e)
                     continue
     except Exception as e:
-        logger.error("文件打开失败: %s, 错误: %s", filepath, e)
+        logger.error("File open failed: %s, error: %s", filepath, e)
         return False
     
     if fail_count > 0:
-        logger.warning("%s: 成功%d条, 失败%d条", filepath, success_count, fail_count)
+        logger.warning("%s: Success %d, Failed %d", filepath, success_count, fail_count)
     
     return True

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def exec_python(response):
-    """从模型响应中提取并执行Python代码"""
+    """Extract and execute Python code from model response"""
     if '=====' not in response:
         return None
 
@@ -48,11 +48,11 @@ def evaluate_precise_if(
     temperature: float = 0.0,
 ) -> Dict[str, Any]:
     """
-    Precise IF 评测逻辑
+    Precise IF evaluation logic
 
-    1. 前置检查：分别对 chosen 和 rejected 进行指令遵循检查（是否满足 constraints）。
-    2. 如果前置检查结果不一致（一是一否），直接判定胜负。
-    3. 如果结果一致，降级为 Pairwise 比较。
+    1. Pre-check: Check instruction following for chosen and rejected separately (satisfy constraints).
+    2. If pre-check results are inconsistent (one yes one no), determine winner directly.
+    3. If results are consistent, downgrade to Pairwise comparison.
     """
     result = {}
 
@@ -65,7 +65,7 @@ def evaluate_precise_if(
     rule = constraint.get('rule', '')
     need_code = constraint.get('need_code', False)
 
-    # 原始 query 处理
+    # Original query processing
     ori_query = query[:-len(rule)] if query.endswith(rule) else query
 
     constraint_results = {}
@@ -107,7 +107,7 @@ def evaluate_precise_if(
     result['constraint_results'] = constraint_results
     result['constraint_judges'] = constraint_judges
 
-    # 判定逻辑
+    # Judgment logic
     c_res = constraint_results['chosen']
     r_res = constraint_results['rejected']
 
@@ -118,7 +118,7 @@ def evaluate_precise_if(
         result['verdict'] = 'rejected_better'
         result['final_verdict'] = 'bad'
     else:
-        # 一致（都是或都否），降级为 Pairwise
+        # Consistent (both yes or both no), downgrade to Pairwise
         result['verdict'] = 'equal'
 
         # Local import to avoid circular dependency

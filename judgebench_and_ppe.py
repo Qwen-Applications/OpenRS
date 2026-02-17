@@ -1,19 +1,19 @@
 """
-judgebench_and_ppe.py - JudgeBench 和 PPE 数据集评测脚本
+judgebench_and_ppe.py - JudgeBench and PPE Dataset Evaluation Script
 
-功能：
-1. 加载 JudgeBench / PPE 格式的数据
-2. 调用 evaluator.py 的公共评测接口
-3. 执行后处理（分流、统计等）
+Features:
+1. Load JudgeBench / PPE format data
+2. Call common evaluation interface from evaluator.py
+3. Execute post-processing (routing, statistics, etc.)
 
-数据格式要求：
+Data format requirements:
 {
     "question_id": "...",
     "prompt": "...",
     "chosen": "...",
     "rejected": "...",
     "query_type": "...",
-    "ground_truth": "..."  # 可选
+    "ground_truth": "..."  # Optional
 }
 """
 
@@ -35,7 +35,7 @@ from robust_utils import safe_json_dumps_robust as safe_json_dumps
 
 logger = logging.getLogger(__name__)
 
-# 文件锁
+# File lock
 file_lock = threading.Lock()
 
 
@@ -46,16 +46,16 @@ def process_single_item(
     output_dir: str = "./results",
 ) -> Dict[str, Any]:
     """
-    处理单条数据
+    Process single item
     
     Args:
-        data: 数据条目
-        temperature: 生成温度
-        annotation: 标注（用于输出文件名）
-        output_dir: 输出目录
+        data: data item
+        temperature: generation temperature
+        annotation: annotation (for output filename)
+        output_dir: output directory
         
     Returns:
-        处理后的数据
+        Processed data
     """
     question_id = data.get('question_id', 'unknown')
     
@@ -66,7 +66,7 @@ def process_single_item(
         query_type = data.get('query_type', 'general')
         ground_truth = data.get('ground_truth')
         
-        # 调用公共评测接口
+        # Call common evaluation interface
         eval_result = evaluate_pair(
             query=query,
             chosen=chosen,
@@ -76,22 +76,22 @@ def process_single_item(
             temperature=temperature,
         )
         
-        # 合并结果到原数据
+        # Merge results to original data
         data['eval_result'] = eval_result
         data['final_verdict'] = eval_result.get('final_verdict', 'error')
         
-        # 提取 pairwise 结果（兼容原格式）
+        # Extract pairwise results (compatible with original format)
         if 'pairwise_forward' in eval_result:
             data['pairwise_judge_chosen_rejected'] = eval_result['pairwise_forward'].get('raw_result')
         if 'pairwise_backward' in eval_result:
             data['pairwise_judge_rejected_chosen'] = eval_result['pairwise_backward'].get('raw_result')
         
-        # 提取 verifiable 结果
+        # Extract verifiable results
         if 'verifiable' in eval_result:
             data['verifiable_judge_chosen'] = eval_result['verifiable'].get('chosen_result')
             data['verifiable_judge_rejected'] = eval_result['verifiable'].get('rejected_result')
         
-        # 分流写入
+        # Routing write
         verdict = eval_result.get('final_verdict', 'error')
         
         if verdict == 'verifiable_good':
@@ -107,7 +107,7 @@ def process_single_item(
         else:
             target_file = f"{output_dir}/error_cases_{annotation}.jsonl"
         
-        # 写入分流文件和汇总文件
+        # Write routing files and summary file
         json_str = safe_json_dumps(data) + '\n'
         with file_lock:
             with open(target_file, "a", encoding="utf-8") as f:
@@ -118,7 +118,7 @@ def process_single_item(
         return data
         
     except Exception as e:
-        error_msg = f"处理失败: {e}"
+        error_msg = f"Processing failed: {e}"
         logger.error("%s: %s", question_id, error_msg)
         
         data['error'] = error_msg
@@ -136,7 +136,7 @@ def compute_score_from_files(
     annotation: str,
 ) -> Dict[str, Any]:
     """
-    从输出文件计算分数（兼容原 compute_score 逻辑）
+    Compute scores from output files (compatible with original compute_score logic)
     """
     verifiable_good_file = f"{output_dir}/verifiable_good_cases_{annotation}.jsonl"
     verifiable_bad_file = f"{output_dir}/verifiable_bad_cases_{annotation}.jsonl"
@@ -184,13 +184,13 @@ def compute_score_by_query_type(
     annotation: str,
 ) -> Dict[str, Dict[str, Any]]:
     """
-    按 query_type 分类统计
+    Statistics by query_type
     """
     all_results_file = f"{output_dir}/all_results_{annotation}.jsonl"
     if not os.path.exists(all_results_file):
         return {}
     
-    # 按 query_type 分组统计
+    # Group statistics by query_type
     stats_by_type: Dict[str, Dict[str, int]] = {}
     
     with open(all_results_file, 'r', encoding='utf-8') as f:
@@ -216,7 +216,7 @@ def compute_score_by_query_type(
             except:
                 continue
     
-    # 计算比率
+    # Calculate ratios
     result = {}
     for query_type, stats in stats_by_type.items():
         all_num = stats['acc_num'] + stats['err_num'] + stats['same_num']
@@ -232,62 +232,62 @@ def compute_score_by_query_type(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="JudgeBench/PPE 数据集评测脚本")
+    parser = argparse.ArgumentParser(description="JudgeBench/PPE Dataset Evaluation Script")
     
-    parser.add_argument("--input", required=True, help="输入数据文件路径")
-    parser.add_argument("--output-dir", default="./results", help="输出目录")
-    parser.add_argument("--annotation", default="", help="标注（用于输出文件名）")
+    parser.add_argument("--input", required=True, help="Input data file path")
+    parser.add_argument("--output-dir", default="./results", help="Output directory")
+    parser.add_argument("--annotation", default="", help="Annotation (for output filename)")
     
-    parser.add_argument("--workers", type=int, default=50, help="并发数")
-    parser.add_argument("--temperature", type=float, default=0.0, help="生成温度")
-    parser.add_argument("--limit", type=int, default=0, help="限制处理条数")
+    parser.add_argument("--workers", type=int, default=50, help="Concurrency")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Generation temperature")
+    parser.add_argument("--limit", type=int, default=0, help="Limit number of items")
     
-    parser.add_argument("--query-type", type=str, default=None, help="只处理指定 query_type")
-    parser.add_argument("--exclude-label-error", action="store_true", help="排除 label_error 数据")
-    parser.add_argument("--require-ground-truth", action="store_true", help="只处理有 ground_truth 的数据")
+    parser.add_argument("--query-type", type=str, default=None, help="Process specific query_type only")
+    parser.add_argument("--exclude-label-error", action="store_true", help="Exclude label_error data")
+    parser.add_argument("--require-ground-truth", action="store_true", help="Process data with ground_truth only")
     
-    parser.add_argument("--no-resume", action="store_true", help="不使用断点续传")
-    parser.add_argument("--stats-only", action="store_true", help="只计算统计，不运行评测")
+    parser.add_argument("--no-resume", action="store_true", help="Do not resume")
+    parser.add_argument("--stats-only", action="store_true", help="Statistics only, no evaluation")
     
     args = parser.parse_args()
     
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     
-    # 创建输出目录
+    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
-    # 如果只计算统计
+    # If statistics only
     if args.stats_only:
-        logger.info("计算统计...")
+        logger.info("Calculating statistics...")
         overall = compute_score_from_files(args.output_dir, args.annotation)
-        logger.info("总体统计: %s", overall)
+        logger.info("Overall statistics: %s", overall)
         
         by_type = compute_score_by_query_type(args.output_dir, args.annotation)
-        logger.info("按 query_type 统计:")
+        logger.info("Statistics by query_type:")
         for qt, stats in sorted(by_type.items()):
             logger.info("  %s: acc_rate=%s, same_rate=%s, all_num=%s", qt, stats['acc_rate'], stats['same_rate'], stats['all_num'])
         return
     
-    # 加载数据
-    logger.info("加载数据: %s", args.input)
+    # Load data
+    logger.info("Load data: %s", args.input)
     all_data = load_jsonl(args.input)
     all_data = [d for d in all_data if d.get('label_error') is not True]
-    logger.info("共 %d 条数据", len(all_data))
+    logger.info("Total %d items", len(all_data))
     
-    # 过滤数据
+    # Filter data
     if args.query_type:
         all_data = [d for d in all_data if d.get('query_type') == args.query_type]
-        logger.info("过滤 query_type=%s: %d 条", args.query_type, len(all_data))
+        logger.info("Filtering query_type=%s: %d items", args.query_type, len(all_data))
     
     if args.exclude_label_error:
         all_data = [d for d in all_data if not d.get('label_error', False)]
-        logger.info("排除 label_error: %d 条", len(all_data))
+        logger.info("Excluding label_error: %d items", len(all_data))
     
     if args.require_ground_truth:
         all_data = [d for d in all_data if d.get('ground_truth')]
-        logger.info("需要 ground_truth: %d 条", len(all_data))
+        logger.info("Require ground_truth: %d items", len(all_data))
     
-    # 断点续传
+    # Resume
     if not args.no_resume:
         all_results_file = f"{args.output_dir}/all_results_{args.annotation}.jsonl"
         if os.path.exists(all_results_file):
@@ -301,31 +301,31 @@ def main():
                     except:
                         pass
             if done_ids:
-                logger.info("断点续传: 已完成 %d 条", len(done_ids))
+                logger.info("Resume: %d items completed", len(done_ids))
                 all_data = [d for d in all_data if d.get('question_id') not in done_ids]
     else:
-        # 清空输出文件
+        # Clear output files
         for pattern in ['verifiable_good', 'verifiable_bad', 'pairwise_good', 'pairwise_bad', 'pairwise_same', 'error', 'all_results']:
             filepath = f"{args.output_dir}/{pattern}_cases_{args.annotation}.jsonl"
             if os.path.exists(filepath):
                 os.remove(filepath)
     
-    # 限制条数
+    # Limit number of items
     if args.limit > 0:
         all_data = all_data[:args.limit]
     
     if not all_data:
-        logger.info("没有需要处理的数据")
+        logger.info("No data to process")
     else:
-        logger.info("开始处理 %d 条数据", len(all_data))
-        logger.info("并发数: %d", args.workers)
-        logger.info("温度: %s", args.temperature)
+        logger.info("Start processing %d items", len(all_data))
+        logger.info("Concurrency: %d", args.workers)
+        logger.info("Temperature: %s", args.temperature)
         
-        # 构建问题类型统计
+        # Build query type statistics
         query_types = Counter([d.get('query_type', 'unknown') for d in all_data])
-        logger.info("问题类型分布: %s", dict(query_types))
+        logger.info("Query type distribution: %s", dict(query_types))
         
-        # 并发处理
+        # Concurrent processing
         func = partial(
             process_single_item,
             temperature=args.temperature,
@@ -339,7 +339,7 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = {executor.submit(func, data): data for data in all_data}
             
-            for future in tqdm(concurrent.futures.as_completed(futures), total=len(all_data), desc="评测进度"):
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(all_data), desc="Evaluation progress"):
                 try:
                     result = future.result()
                     if result.get('final_verdict') != 'error':
@@ -348,16 +348,16 @@ def main():
                         error_count += 1
                 except Exception as e:
                     error_count += 1
-                    logger.error("任务异常: %s", e)
+                    logger.error("Task error: %s", e)
         
         logger.info("=" * 50)
-        logger.info("处理完成: 成功=%d, 失败=%d", success_count, error_count)
+        logger.info("Processing complete: Success=%d, Error=%d", success_count, error_count)
     
-    # 计算统计
+    # Compute statistics
     overall = compute_score_from_files(args.output_dir, args.annotation)
     by_type = compute_score_by_query_type(args.output_dir, args.annotation)
     
-    # 保存统计结果
+    # Save statistics
     summary = {
         'overall': overall,
         'by_query_type': by_type,
@@ -365,32 +365,32 @@ def main():
     with open(f"{args.output_dir}/summary_{args.annotation}.json", 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     
-    # 打印易读报告
+    # Print readable report
     _print_report(overall, by_type, args.output_dir)
 
 
 def _print_report(overall: Dict, by_type: Dict, output_dir: str):
-    """打印格式化的结果统计报告"""
+    """Print formatted results statistics report"""
     d = overall.get('details', {})
     
     print("\n")
     print("=" * 70)
-    print("  JudgeBench / PPE 评测报告")
+    print("  JudgeBench / PPE Evaluation Report")
     print("=" * 70)
     
-    # 总体统计
-    print(f"\n  总样本数: {overall['all_num']}")
-    print(f"  ├─ Chosen 更好 (Good):  {overall['acc_num']:>5d}   ({overall['acc_rate']:.2%})")
-    print(f"  ├─ Rejected 更好 (Bad): {overall['err_num']:>5d}")
-    print(f"  ├─ 平局 (Same):         {overall['same_num']:>5d}   ({overall['same_rate']:.2%})")
-    print(f"  └─ 准确率 (Win/Valid):         {overall['acc_rate']:.2%}")
+    # Overall Statistics
+    print(f"\n  Total samples: {overall['all_num']}")
+    print(f"  ├─ Chosen Better (Good):  {overall['acc_num']:>5d}   ({overall['acc_rate']:.2%})")
+    print(f"  ├─ Rejected Better (Bad): {overall['err_num']:>5d}")
+    print(f"  ├─ Same:         {overall['same_num']:>5d}   ({overall['same_rate']:.2%})")
+    print(f"  └─ Accuracy (Win/Valid):         {overall['acc_rate']:.2%}")
     
-    # 来源分布
-    print(f"\n  来源分布:")
+    # Source Distribution
+    print(f"\n  Source Distribution:")
     print(f"  ├─ Verifiable Good:  {d.get('verifiable_good', 0):>4d}    Verifiable Bad:  {d.get('verifiable_bad', 0):>4d}")
     print(f"  └─ Pairwise Good:    {d.get('pairwise_good', 0):>4d}    Pairwise Bad:    {d.get('pairwise_bad', 0):>4d}    Pairwise Same: {d.get('pairwise_same', 0):>4d}")
     
-    # 按 query_type 统计
+    # Statistics by query_type
     if by_type:
         print(f"\n  {'Query Type':<20s} {'Good':>6s} {'Bad':>6s} {'Same':>6s} {'Total':>6s} {'Acc Rate':>10s}")
         print("  " + "-" * 60)
@@ -403,7 +403,7 @@ def _print_report(overall: Dict, by_type: Dict, output_dir: str):
             print(f"  {qt:<20s} {acc:>6d} {err:>6d} {same:>6d} {total:>6d} {rate:>9.2%}")
     
     print("\n" + "=" * 70)
-    print(f"  结果目录: {output_dir}")
+    print(f"  Result directory: {output_dir}")
     print("=" * 70)
     print()
 
