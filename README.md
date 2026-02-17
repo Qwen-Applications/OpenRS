@@ -1,7 +1,7 @@
 <p align="center">
-  <h1 align="center">OpenRS: Open Rubric System</h1>
+  <h1 align="center">Open Rubric System: Scaling Reinforcement Learning with Pairwise Adaptive Rubric</h1>
   <p align="center">
-    <em>Replacing Reward Models with Adaptive, Fine-Grained LLM Evaluation</em>
+    <em>Say Goodbye to Scalar Reward Model, Exploring the Aha Moment in General RL</em>
   </p>
 </p>
 
@@ -196,10 +196,14 @@ results/
 If you find this work useful, please cite:
 
 ```bibtex
-@misc{openrs2025,
-  title   = {Open Rubric System: Scaling Reinforcement Learning with Pairwise Adaptive Rubric},
-  year    = {2025},
-  url     = {https://github.com/WyxBUPT-22/OpenRS}
+@misc{jia2026openrubricsystemscaling,
+      title={Open Rubric System: Scaling Reinforcement Learning with Pairwise Adaptive Rubric}, 
+      author={Ruipeng Jia and Yunyi Yang and Yuxin Wu and Yongbo Gai and Siyuan Tao and Mengyu Zhou and Jianhe Lin and Xiaoxi Jiang and Guanjun Jiang},
+      year={2026},
+      eprint={2602.14069},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2602.14069}, 
 }
 ```
 
