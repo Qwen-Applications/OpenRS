@@ -37,7 +37,7 @@
 We evaluate five judge models across four benchmarks:
 
 <p align="center">
-  <img src="assests/main_results.png" width="800"/>
+  <img src="assests/main_results.jpg" width="800"/>
   <br/>
   <em>Table 1: Accuracy (%) of different judge models across four benchmarks.</em>
 </p>
