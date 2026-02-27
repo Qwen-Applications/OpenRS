@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/WyxBUPT-22/OpenRS"><img src="https://img.shields.io/badge/GitHub-Repository-blue?logo=github" alt="GitHub"></a>
-  <a href="#"><img src="https://img.shields.io/badge/arXiv-Coming_Soon-b31b1b?logo=arxiv" alt="arXiv"></a>
+  <a href="https://arxiv.org/pdf/2602.14069"><img src="https://img.shields.io/badge/arXiv-2602.14069-b31b1b?logo=arxiv" alt="arXiv"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue" alt="License"></a>
   <a href="README_zh.md"><img src="https://img.shields.io/badge/中文文档-README__zh-orange" alt="中文"></a>
 </p>
@@ -18,16 +18,8 @@
 
 **OpenRS** (Open Rubric System) is an LLM-as-a-Judge evaluation framework that replaces traditional Reward Models with adaptive, fine-grained rubric-based evaluation. The core idea is to use large language models to evaluate response quality through **adaptive, query-type-specific rubrics** — enabling multi-dimensional scoring with interpretable verdicts.
 
-The framework supports three evaluation paradigms:
-
-| Paradigm | Scenario | Description |
-| :---: | :--- | :--- |
-| **Pairwise** | Chat, Code, Safety, etc. | A/B bi-directional comparison with weighted multi-criteria scoring |
-| **Verifiable** | Math, Factuality | Ground-truth verification first, fallback to Pairwise if inconclusive |
-| **Precise IF** | Instruction Following | Hard constraint checking, fallback to Pairwise on ties |
-
 <p align="center">
-  <img src="assests/framework.png" width="800"/>
+  <img src="assests/framework.jpg" width="800"/>
   <br/>
   <em>Figure 1: OpenRS Evaluation Pipeline — From pairwise responses, through verifiable and adaptive rubric generation, to multi-criteria scoring.</em>
 </p>
@@ -53,12 +45,10 @@ We evaluate five judge models across four benchmarks:
 ## Installation
 
 ```bash
-git clone https://github.com/WyxBUPT-22/OpenRS.git
+git clone https://github.com/Qwen-Applications/OpenRS.git
 cd OpenRS
 pip install -r requirements.txt
 ```
-
-**Dependencies**: `openai`, `tenacity`, `json5`, `json-repair`, `tqdm`
 
 ## Quick Start
 
@@ -74,8 +64,8 @@ export OPENAI_MODEL_NAME="your-model-name"
 
 ### 2. Run Evaluation
 
-<details>
-<summary><b>JudgeBench / PPE</b></summary>
+
+* **JudgeBench** / **PPE**
 
 ```bash
 python judgebench_and_ppe.py \
@@ -85,10 +75,7 @@ python judgebench_and_ppe.py \
     --workers 50
 ```
 
-</details>
-
-<details>
-<summary><b>RewardBench V2</b></summary>
+* **RewardBench V2**
 
 ```bash
 python rewardbench_v2.py \
@@ -98,10 +85,7 @@ python rewardbench_v2.py \
     --workers 10
 ```
 
-</details>
-
-<details>
-<summary><b>RMBench</b></summary>
+* **RMBench**
 
 ```bash
 python rmbench.py \
@@ -110,42 +94,17 @@ python rmbench.py \
     --workers 10
 ```
 
-</details>
-
-### Common Arguments
+#### Common Arguments
 
 | Argument | Description | Default |
 | :--- | :--- | :---: |
 | `--input` | Input data path | *required* |
 | `--output-dir` | Output directory | `./results` |
-| `--workers` | Concurrent threads | 10–50 |
+| `--workers` | Concurrent threads | 10 |
 | `--temperature` | Generation temperature | 0.0 |
 | `--limit` | Max items to process (0=all) | 0 |
 | `--no-resume` | Disable checkpoint resume | False |
 | `--stats-only` | Report stats without running | False |
-
-## Evaluation Pipeline
-
-```
-Input Data → Evaluation Router → Model Call → Score Parsing → Result Aggregation → Report
-```
-
-### Scoring Mechanism
-
-Each criterion is weighted by importance:
-
-| Category | Weight | Description |
-| :---: | :---: | :--- |
-| **Critical Flaw** | Veto | Fatal errors → immediate verdict, all other scores ignored |
-| **Core** | ×5 | Key quality dimensions |
-| **Important** | ×2 | Meaningful but non-critical factors |
-| **Highlight** | ×1 | Bonus items |
-
-### Dataset-Specific Logic
-
-- **JudgeBench / PPE**: Full `evaluate_pair` per sample — Verifiable check → bi-directional Pairwise
-- **RewardBench V2**: 1-vs-N comparison, subset-specific routing (Chat, Math, Safety, Precise IF, Focus); ties excluded from accuracy
-- **RMBench**: 9 pairs (3 chosen × 3 rejected variants) × 2 orders = 18 evaluations per sample; stratified by Easy / Normal / Hard
 
 ## Project Structure
 
