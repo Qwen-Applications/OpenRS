@@ -96,15 +96,15 @@ python rmbench.py \
 
 #### Common Arguments
 
-| Argument | Description | Default |
-| :--- | :--- | :---: |
-| `--input` | Input data path | *required* |
-| `--output-dir` | Output directory | `./results` |
-| `--workers` | Concurrent threads | 10 |
-| `--temperature` | Generation temperature | 0.0 |
-| `--limit` | Max items to process (0=all) | 0 |
-| `--no-resume` | Disable checkpoint resume | False |
-| `--stats-only` | Report stats without running | False |
+| Argument        | Description                  |   Default   |
+| :-------------- | :--------------------------- | :---------: |
+| `--input`       | Input data path              | *required*  |
+| `--output-dir`  | Output directory             | `./results` |
+| `--workers`     | Concurrent threads           |     10      |
+| `--temperature` | Generation temperature       |     0.0     |
+| `--limit`       | Max items to process (0=all) |      0      |
+| `--no-resume`   | Disable checkpoint resume    |    False    |
+| `--stats-only`  | Report stats without running |    False    |
 
 ## Project Structure
 
@@ -140,7 +140,7 @@ After evaluation, results are organized by verdict:
 
 ```
 results/
-├── all_results_{annotation}.jsonl            # All results
+├── all_results_{annotation}.jsonl             # All results
 ├── verifiable_good_cases_{annotation}.jsonl   # Verifiable: chosen wins
 ├── verifiable_bad_cases_{annotation}.jsonl    # Verifiable: rejected wins
 ├── pairwise_good_cases_{annotation}.jsonl     # Pairwise: chosen wins
