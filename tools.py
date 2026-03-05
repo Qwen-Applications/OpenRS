@@ -38,11 +38,6 @@ def save_jsonl(datas, file_name):
 
 def load_jsonl(file_path):
     """Load JSONL file (supports automatic repair of broken lines)"""
-    try:
-        from json_repair import repair_json
-        has_repair = True
-    except ImportError:
-        has_repair = False
     data = []
     errors = []
 
@@ -57,15 +52,12 @@ def load_jsonl(file_path):
                 try:
                     data.append(json.loads(line))
                 except json.JSONDecodeError:
-                    if has_repair:
-                        try:
-                            fixed_line = repair_json(line)
-                            data.append(json.loads(fixed_line))
-                            logger.warning("Line %d repaired automatically.", i)
-                        except Exception:
-                            errors.append(f"Line {i}: Repair failed")
-                    else:
-                        errors.append(f"Line {i}: JSON Error (json_repair module not found)")
+                    try:
+                        fixed_line = repair_json(line)
+                        data.append(json.loads(fixed_line))
+                        logger.warning("Line %d repaired automatically.", i)
+                    except Exception:
+                        errors.append(f"Line {i}: Repair failed")
 
     except FileNotFoundError:
         logger.error("File not found: %s", file_path)

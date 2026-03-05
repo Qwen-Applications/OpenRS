@@ -21,12 +21,12 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from tqdm import tqdm
 
 from evaluator import evaluate_pair, evaluate_precise_if
-from tools import load_jsonl, save_jsonl, parse_pair_score
+from tools import load_jsonl
 from robust_utils import safe_json_dumps_robust as safe_json_dumps
 
 logger = logging.getLogger(__name__)

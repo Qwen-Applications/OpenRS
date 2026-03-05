@@ -19,15 +19,15 @@ import os
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, List, Literal, Optional, Tuple
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
 # Use common evaluation interface
 from evaluator import evaluate_pairwise, evaluate_verifiable
-from tools import load_jsonl, save_jsonl
+
 from robust_utils import safe_json_dumps_robust as safe_json_dumps
 
 logger = logging.getLogger(__name__)
@@ -310,93 +310,6 @@ def aggregate_pair_result(w1: str, w2: str) -> str:
         return "lose"
     
     return "tie"
-
-
-def process_sample(
-    sample: Dict[str, Any],
-    output_file: str,
-    raw_output_file: str,
-    error_file: str,
-    temperature: float = 0.0,
-    workers: int = MAX_CONCURRENT,
-) -> Dict[str, Any]:
-    """Process all evaluations for a single sample"""
-    sample_id = get_sample_field(sample, "id", "question_id", default="unknown")
-    domain = get_sample_field(sample, "domain", "query_type", default="general")
-    query = get_sample_field(sample, "prompt", default="")
-    
-    try:
-        judge_inputs = build_judge_inputs(sample)
-    except Exception as e:
-        logger.error("%s: Build judge inputs failed - %s", sample_id, e)
-        return {"id": sample_id, "domain": domain, "error": str(e)}
-    
-    # Execute all evaluations concurrently
-    raw_results: Dict[Tuple[str, int], Dict[str, Any]] = {}
-    
-    # Limit inner concurrency to avoid thread explosion (outer layer already has main concurrency)
-    inner_workers = min(workers, 4) 
-    with ThreadPoolExecutor(max_workers=inner_workers) as executor:
-        futures = {executor.submit(judge_one, ji, temperature): ji for ji in judge_inputs}
-        
-        for future in as_completed(futures):
-            ji = futures[future]
-            try:
-                result = future.result()
-                raw_results[(result["pair"], result["order"])] = result
-                
-                # Write raw results
-                raw_record = {
-                    "id": sample_id,
-                    "domain": domain,
-                    **result,
-                }
-                with file_lock:
-                    with open(raw_output_file, "a", encoding="utf-8") as f:
-                        f.write(safe_json_dumps(raw_record) + "\n")
-                
-            except Exception as e:
-                error_record = {
-                    "id": sample_id,
-                    "domain": domain,
-                    "pair": ji.pair,
-                    "order": ji.order,
-                    "error": repr(e),
-                }
-                with file_lock:
-                    with open(error_file, "a", encoding="utf-8") as f:
-                        f.write(json.dumps(error_record, ensure_ascii=False) + "\n")
-                raw_results[(ji.pair, ji.order)] = {"winner": None, "error": repr(e)}
-    
-    # Aggregate results for each pair
-    pair_results: Dict[str, Any] = {}
-    for pair in PAIR_LABELS:
-        r1 = raw_results.get((pair, 1), {})
-        r2 = raw_results.get((pair, 2), {})
-        w1 = r1.get("winner")
-        w2 = r2.get("winner")
-        
-        result = aggregate_pair_result(w1, w2)
-        pair_results[pair] = {
-            "order1_winner": w1,
-            "order2_winner": w2,
-            "result": result,
-        }
-    
-    # Build final record
-    final_record = {
-        "id": sample_id,
-        "domain": domain,
-        "prompt": query,
-        "pair_results": pair_results,
-    }
-    
-    # Write results
-    with file_lock:
-        with open(output_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(final_record, ensure_ascii=False) + "\n")
-    
-    return final_record
 
 
 def compute_summary(output_file: str) -> Dict[str, Any]:

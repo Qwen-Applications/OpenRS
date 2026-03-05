@@ -2,7 +2,6 @@
 evaluator.py - Common Evaluation Interface
 
 Provides unified evaluation functions:
-- evaluate_pointwise: For Precise IF in RewardBench V2
 - evaluate_verifiable: Fact checking
 - evaluate_pairwise: Pairwise comparison
 - evaluate_pair: Packages evaluate_verifiable and evaluate_pairwise, unified evaluation entry point
@@ -81,37 +80,6 @@ def get_json_result(prompt: str, temperature: float = 0.0) -> Optional[Dict[str,
             return json_result
         logger.warning('JSON format error, retrying...')
     return None
-
-
-def evaluate_pointwise(
-    query: str,
-    chosen: str,
-    rejected: str,
-    temperature: float = 0.0,
-    constraints: Optional[list] = None,
-    subset: str = 'Precise IF',
-) -> Dict[str, Any]:
-    """
-    Pointwise evaluation (for Instruction Following / Focus)
-
-    Score chosen and rejected separately (1/0/-1), then compare scores to determine winner.
-
-    Args:
-        query: User question
-        chosen: Chosen response
-        rejected: Rejected response
-        temperature: Generation temperature
-        constraints: List of hard constraints (Optional, for Precise IF)
-        subset: Subset name, used to select prompt ('Precise IF' or 'Focus')
-
-    Returns:
-        Evaluation result dictionary
-    """
-    if subset == 'Precise IF':
-        return evaluate_precise_if(query, chosen, rejected, constraints, temperature)
-
-    # Fallback for unknown subsets
-    return {'error': f"Unknown subset: {subset}", 'verdict': 'error'}
 
 
 def evaluate_verifiable(
@@ -327,43 +295,3 @@ def evaluate_pair(
 
     return result
 
-
-def compute_metrics_from_verdicts(verdicts: list, verifiable_good_count: int = 0, verifiable_bad_count: int = 0) -> Dict[str, Any]:
-    """
-    Compute metrics from verdict list
-
-    Args:
-        verdicts: List of final_verdict results
-        verifiable_good_count: Count of good verdicts directly from verifiable stage
-        verifiable_bad_count: Count of bad verdicts directly from verifiable stage
-
-    Returns:
-        Dictionary containing acc_num, same_num, err_num, all_num, acc_rate, same_rate, parse_failed
-    """
-    acc_num = verifiable_good_count
-    err_num = verifiable_bad_count
-    same_num = 0
-    parse_failed = 0
-
-    for verdict in verdicts:
-        if verdict == 'good' or verdict == 'verifiable_good':
-            acc_num += 1
-        elif verdict == 'bad' or verdict == 'verifiable_bad':
-            err_num += 1
-        elif verdict == 'same':
-            same_num += 1
-        else:
-            parse_failed += 1
-
-    all_num = acc_num + err_num + same_num
-    valid_num = acc_num + err_num
-
-    return {
-        'acc_num': acc_num,
-        'same_num': same_num,
-        'err_num': err_num,
-        'all_num': all_num,
-        'acc_rate': round(acc_num / valid_num, 4) if valid_num > 0 else 0,
-        'same_rate': round(same_num / all_num, 4) if all_num > 0 else 0,
-        'parse_failed': parse_failed,
-    }
