@@ -25,12 +25,12 @@ import os
 import threading
 from collections import Counter
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from tqdm import tqdm
 
-from evaluator import evaluate_pair, compute_metrics_from_verdicts
-from tools import load_jsonl, save_jsonl, parse_pair_score
+from evaluator import evaluate_pair
+from tools import load_jsonl
 from robust_utils import safe_json_dumps_robust as safe_json_dumps
 
 logger = logging.getLogger(__name__)
@@ -243,7 +243,6 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="Limit number of items")
     
     parser.add_argument("--query-type", type=str, default=None, help="Process specific query_type only")
-    parser.add_argument("--exclude-label-error", action="store_true", help="Exclude label_error data")
     parser.add_argument("--require-ground-truth", action="store_true", help="Process data with ground_truth only")
     
     parser.add_argument("--no-resume", action="store_true", help="Do not resume")
@@ -279,9 +278,6 @@ def main():
         all_data = [d for d in all_data if d.get('query_type') == args.query_type]
         logger.info("Filtering query_type=%s: %d items", args.query_type, len(all_data))
     
-    if args.exclude_label_error:
-        all_data = [d for d in all_data if not d.get('label_error', False)]
-        logger.info("Excluding label_error: %d items", len(all_data))
     
     if args.require_ground_truth:
         all_data = [d for d in all_data if d.get('ground_truth')]
@@ -305,10 +301,14 @@ def main():
                 all_data = [d for d in all_data if d.get('question_id') not in done_ids]
     else:
         # Clear output files
-        for pattern in ['verifiable_good', 'verifiable_bad', 'pairwise_good', 'pairwise_bad', 'pairwise_same', 'error', 'all_results']:
+        for pattern in ['verifiable_good', 'verifiable_bad', 'pairwise_good', 'pairwise_bad', 'pairwise_same', 'error']:
             filepath = f"{args.output_dir}/{pattern}_cases_{args.annotation}.jsonl"
             if os.path.exists(filepath):
                 os.remove(filepath)
+        # all_results uses a different naming pattern (no _cases_ infix)
+        all_results_path = f"{args.output_dir}/all_results_{args.annotation}.jsonl"
+        if os.path.exists(all_results_path):
+            os.remove(all_results_path)
     
     # Limit number of items
     if args.limit > 0:
